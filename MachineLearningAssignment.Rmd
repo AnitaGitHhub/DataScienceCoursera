@@ -1,0 +1,173 @@
+---
+title: "Practical Machine Learning Course Project Report"
+author: "Anita"
+date: "December 24, 2017"
+output:
+  html_document: default
+  pdf_document: default
+  word_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+cache= TRUE
+```
+
+###Background
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement - a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, our goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. More information is available from the website here: http://groupware.les.inf.puc-rio.br/har (see the section on the Weight Lifting Exercise Dataset).
+
+###Data Sources
+The training data for this project is available here:
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv
+The test data is available here:
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv
+The data for this project comes from this original source: http://groupware.les.inf.puc-rio.br/har.
+
+###Objective
+The objective of this project is to predict the manner in which they did the exercise. This is the "classe" variable in the training set. 
+Any of the other variables can be used to predict with. This report describes how the model was built, how cross validation was used, what is the expected out of sample error is and why certain choices were made. This prediction model will be used to predict 20 different test cases.
+
+###Reproducibility
+In order to reproduce the same results, you need to install/load the set of packages loaded below and set seed equal to the one I have used.
+
+```{r loadlib}
+library(rattle)
+library(caret)
+library(rpart)
+library(rpart.plot)
+library(corrplot)
+library(randomForest)
+library(RColorBrewer)
+set.seed(56789)
+
+     cache = TRUE
+```
+
+### Data Loading
+In this setp we will download the data files from the URL and load them into testing and training Data Frames.
+
+```{r loaddata}
+setwd("C://Files/Data Science/Machine Learning/Project")
+trainUrl  <-"https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+testUrl   <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+trainFile <- "training.csv"
+testFile  <- "testing.csv"
+if (!file.exists(trainFile)) {
+  download.file(trainUrl, destfile = trainFile)
+}
+if (!file.exists(testFile)) {
+  download.file(testUrl, destfile = testFile)
+}
+#Load the data into data frames
+rm(trainUrl)
+rm(testUrl)
+trainDF <- read.csv(trainFile)
+testDF <- read.csv(testFile)
+dim(trainDF)
+dim(testDF)
+
+```
+
+###Data Cleanup
+
+In this step, we will clean the dataset and get rid of observations with NA values,redundant variables and  near zero variance values.
+```{r removeredundant}
+#Removing NA values
+condition <- (colSums(is.na(trainDF)) == 0)
+training  <- trainDF[, condition]
+testing   <- testDF[, condition]
+rm(condition)
+rm(trainDF)
+rm(testDF)
+
+#Removing redundant variables
+regex    <- grepl("^X|timestamp|user_name", names(training))
+training <- training[, !regex]
+testing  <- testing[, !regex]
+rm(regex)
+dim(training)
+dim(testing)
+
+#Removing near zero variances
+NZV <- nearZeroVar(training, saveMetrics = TRUE)
+head(NZV, 20)
+training <- training[, !NZV$nzv]
+testing  <- testing[, !NZV$nzv]
+dim(training)
+dim(testing)
+
+rm(NZV)
+
+
+#Correlation Matrix of Columns in the Training Data set.
+
+corrplot(cor(training[, -length(names(training))]), method = "color", tl.cex = 0.5)
+```
+
+###Partitioning the training data set 
+In this step we will partition the training data set into training(70%) and validation(30%) data sets
+
+```{r partition}
+set.seed(56789) #For reproducibility
+inTrain    <- createDataPartition(training$classe, p = 0.70, list = FALSE)
+training   <- training[inTrain, ]
+validation <- training[-inTrain,]
+
+
+#The Dataset now consists of:
+#No of observations in Training Data: 
+dim(training)
+#2. No of observations in Validation Data:
+dim(validation)
+#3. No of observations in Testing Data:
+dim(testing)
+```
+
+###Data Modelling
+
+#### Decision Tree
+Fit a predictive model for activity recognition using Decision Tree algorithm.
+
+```{r decisiontree}
+modelDT <- rpart(classe ~ ., data = training, method = "class")
+prp(modelDT)
+
+#Estimate the performance of the model on the validation data set
+predictDT <- predict(modelDT, validation, type = "class")
+confusionMatrix(validation$classe, predictDT)
+accuracy <- postResample(predictDT, validation$classe)
+ose <- 1 - as.numeric(confusionMatrix(validation$classe, predictDT)$overall[1])
+rm(predictDT)
+rm(modelDT)
+```
+
+#### Random Forest
+Fit a predictive model for activity recognition using Random Forest algorithm(using 5-fold cross validation).
+
+```{r randomforest}
+
+modelRF <- train(classe ~ ., data = training, method = "rf", trControl = trainControl(method = "cv", 5), ntree = 250)
+modelRF
+#Estimate the performance of the model on the validation data set
+predictRF <- predict(modelRF, validation)
+confusionMatrix(validation$classe, predictRF)
+accuracy <- postResample(predictRF, validation$classe)
+ose <- 1 - as.numeric(confusionMatrix(validation$classe, predictRF)$overall[1])
+rm(predictRF)
+
+#The Estimated Accuracy of the Random Forest Model is:
+accuracy 
+#The Estimated Out-of-Sample Error is:
+ose
+
+#Random Forests yielded better results.
+```
+
+###Predicting with testing data set
+```{r predict}
+rm(accuracy)
+rm(ose)
+predict(modelRF, testing[, -length(names(testing))])
+```
+
+
